@@ -1,0 +1,426 @@
+import sys
+import os
+import requests
+from typing import List, Dict, Any
+
+from PySide6.QtWidgets import (
+    QApplication, QMainWindow, QTableWidget, QTableWidgetItem,
+    QPushButton, QVBoxLayout, QWidget, QHeaderView, QTextBrowser,
+    QSplitter, QProgressBar, QFileDialog, QMessageBox, QInputDialog
+)
+from PySide6.QtCore import (
+    Qt, QThread, QObject, Signal, Slot
+)
+
+from clubtwit import ClubTwit
+
+
+class ShowFetcher(QObject):
+    """
+    Worker object to fetch show data in a separate thread.
+    """
+    finished = Signal(list)
+    error = Signal(str)
+
+    def run(self) -> None:
+        """
+        Executes the fetching process.
+        """
+        try:
+            ct = ClubTwit()
+            if not ct.clubtwit_url:
+                # Prompt user for URL if not set
+                self.error.emit("NO_URL")
+                return
+            shows = ct.fetch_shows()
+            self.finished.emit(shows)
+        except Exception as e:
+            self.error.emit(str(e))
+
+
+class Downloader(QObject):
+    """
+    Worker object to download a file in a separate thread.
+    """
+    # Basic percentage progress for backward compatibility
+    progress = Signal(int)
+    # Detailed progress: percent, bytes_downloaded, total_bytes, rate_bytes_per_sec, eta_seconds
+    progress_detail = Signal(int, int, int, float, float)
+    finished = Signal()
+    error = Signal(str)
+
+    def __init__(self, url: str, filepath: str):
+        super().__init__()
+        self.url = url
+        self.filepath = filepath
+        self._abort = False
+
+    def cancel(self) -> None:
+        """Requests cooperative cancellation of the download."""
+        self._abort = True
+
+    def run(self) -> None:
+        """
+        Executes the download process.
+        """
+        try:
+            import time
+            start_time = time.time()
+            aborted = False
+            with requests.get(self.url, stream=True) as r:
+                r.raise_for_status()
+                total_size = int(r.headers.get('content-length', 0))
+                bytes_downloaded = 0
+                with open(self.filepath, 'wb') as f:
+                    for chunk in r.iter_content(chunk_size=8192):
+                        if self._abort:
+                            aborted = True
+                            break
+                        if not chunk:
+                            continue
+                        f.write(chunk)
+                        bytes_downloaded += len(chunk)
+                        # Calculate percentage if total size known
+                        percentage = int((bytes_downloaded * 100) // total_size) if total_size > 0 else 0
+                        # Calculate rate and ETA
+                        elapsed = max(time.time() - start_time, 1e-6)
+                        rate = bytes_downloaded / elapsed
+                        eta = ((total_size - bytes_downloaded) / rate) if (total_size > 0 and rate > 0) else -1.0
+                        # Emit signals
+                        if total_size > 0:
+                            self.progress.emit(percentage)
+                        self.progress_detail.emit(percentage, bytes_downloaded, total_size, float(rate), float(eta))
+            if aborted:
+                # Clean up partial file
+                try:
+                    if os.path.exists(self.filepath):
+                        os.remove(self.filepath)
+                except Exception:
+                    pass
+                self.error.emit("Canceled")
+            else:
+                self.finished.emit()
+        except Exception as e:
+            self.error.emit(str(e))
+
+
+class MainWindow(QMainWindow):
+    """
+    The main window for the Club TWiT Downloader application.
+    """
+
+    def __init__(self):
+        super().__init__()
+        self.setWindowTitle("Club TWiT Show Downloader")
+        self.setGeometry(100, 100, 1200, 800)
+
+        self.shows_data: List[Dict[str, Any]] = []
+        self.current_download_title: str = ""
+        # Guard to prevent slots from touching UI during/after shutdown
+        self._is_shutting_down: bool = False
+
+        # Main layout and widgets
+        self.central_widget = QWidget()
+        self.setCentralWidget(self.central_widget)
+        self.layout = QVBoxLayout(self.central_widget)
+
+        # Splitter for table and description
+        self.splitter = QSplitter(Qt.Orientation.Vertical)
+        self.layout.addWidget(self.splitter)
+
+        # Table to display shows
+        self._setup_table()
+
+        # Text browser for show description
+        self.description_browser = QTextBrowser()
+        self.splitter.addWidget(self.description_browser)
+        self.splitter.setSizes([600, 200])
+
+        # Download/quit buttons and progress bar
+        self.download_button = QPushButton("Download Selected Show")
+        self.download_button.setEnabled(False)
+        self.layout.addWidget(self.download_button)
+
+        self.quit_button = QPushButton("Quit")
+        self.layout.addWidget(self.quit_button)
+
+        self.progress_bar = QProgressBar()
+        self.progress_bar.setVisible(False)
+        self.layout.addWidget(self.progress_bar)
+
+        # Status bar
+        self.statusBar().showMessage("Ready")
+
+        # Connect signals to slots
+        self.table.itemSelectionChanged.connect(self.on_selection_changed)
+        self.download_button.clicked.connect(self.start_download)
+        self.quit_button.clicked.connect(self.quit_app)
+
+        self.load_shows()
+
+    def _setup_table(self) -> None:
+        """Initializes and configures the QTableWidget."""
+        self.table = QTableWidget()
+        self.table.setColumnCount(3)
+        self.table.setHorizontalHeaderLabels(["Title", "Publication Date", "Size (MB)"])
+        self.table.setSelectionBehavior(QTableWidget.SelectionBehavior.SelectRows)
+        self.table.setEditTriggers(QTableWidget.EditTriggers.NoEditTriggers)
+        self.table.verticalHeader().setVisible(False)
+        header = self.table.horizontalHeader()
+        header.setSectionResizeMode(0, QHeaderView.ResizeMode.Stretch)
+        header.setSectionResizeMode(1, QHeaderView.ResizeMode.ResizeToContents)
+        header.setSectionResizeMode(2, QHeaderView.ResizeMode.ResizeToContents)
+        self.splitter.addWidget(self.table)
+
+    def load_shows(self) -> None:
+        """
+        Initiates fetching the show list in a background thread.
+        """
+        self.statusBar().showMessage("Fetching show list...")
+
+        self.fetch_thread = QThread()
+        self.fetch_worker = ShowFetcher()
+        self.fetch_worker.moveToThread(self.fetch_thread)
+
+        self.fetch_thread.started.connect(self.fetch_worker.run)
+        self.fetch_worker.finished.connect(self.populate_table)
+        self.fetch_worker.error.connect(self.on_fetch_error)
+
+        self.fetch_worker.finished.connect(self.fetch_thread.quit)
+        self.fetch_worker.finished.connect(self.fetch_worker.deleteLater)
+        self.fetch_thread.finished.connect(self.fetch_thread.deleteLater)
+
+        self.fetch_thread.start()
+
+    @Slot(list)
+    def populate_table(self, shows: List[Dict[str, Any]]) -> None:
+        """
+        Fills the table with show data received from the worker thread.
+        """
+        if self._is_shutting_down:
+            return
+        self.shows_data = shows
+        self.table.setRowCount(len(shows))
+        for row, show in enumerate(shows):
+            size_mb = f"{show.get('Length', 0) / (1024 * 1024):.2f}"
+            self.table.setItem(row, 0, QTableWidgetItem(show.get("Title")))
+            self.table.setItem(row, 1, QTableWidgetItem(show.get("PubDate")))
+            self.table.setItem(row, 2, QTableWidgetItem(size_mb))
+        self.statusBar().showMessage(f"Loaded {len(shows)} shows.")
+
+    @Slot(str)
+    def on_fetch_error(self, error_message: str) -> None:
+        """
+        Handles errors from the show fetching worker.
+        """
+        if self._is_shutting_down:
+            return
+        if error_message == "NO_URL":
+            self.prompt_for_url()
+        else:
+            QMessageBox.critical(self, "Error", f"Failed to fetch shows: {error_message}")
+            self.statusBar().showMessage("Error fetching shows.")
+
+    def prompt_for_url(self) -> None:
+        """
+        Asks the user for their Club TWiT URL and saves it to a .env file.
+        """
+        url, ok = QInputDialog.getText(self, "Club TWiT URL",
+                                       "Please enter your personal Club TWiT RSS feed URL:")
+        if ok and url:
+            with open(".env", "w") as f:
+                f.write(f'twitcluburl="{url}"\n')
+            self.statusBar().showMessage("URL saved. Restarting show fetch...")
+            self.load_shows()  # Retry loading
+        else:
+            self.statusBar().showMessage("Cannot load shows without a URL.")
+
+    @Slot()
+    def on_selection_changed(self) -> None:
+        """
+        Updates the description and enables the download button when a show is selected.
+        """
+        selected_rows = self.table.selectionModel().selectedRows()
+        if selected_rows:
+            selected_row = selected_rows[0].row()
+            description = self.shows_data[selected_row].get("Description", "No description available.")
+            self.description_browser.setText(description)
+            self.download_button.setEnabled(True)
+        else:
+            self.description_browser.clear()
+            self.download_button.setEnabled(False)
+
+    @Slot()
+    def start_download(self) -> None:
+        """
+        Starts the download process for the selected show.
+        """
+        selected_rows = self.table.selectionModel().selectedRows()
+        if not selected_rows:
+            return
+
+        selected_row = selected_rows[0].row()
+        show_to_download = self.shows_data[selected_row]
+        download_url = show_to_download.get("Link")
+        self.current_download_title = show_to_download.get("Title", "")
+
+        if not download_url:
+            QMessageBox.warning(self, "Download Error", "No download link available for this item.")
+            return
+
+        # Sanitize filename
+        filename = "".join(c for c in show_to_download['Title'] if c.isalnum() or c in (' ', '.', '_')).rstrip()
+        filename += os.path.splitext(download_url)[1] or ".mp4"
+
+        save_path, _ = QFileDialog.getSaveFileName(self, "Save File", filename)
+
+        if not save_path:
+            return
+
+        self.progress_bar.setVisible(True)
+        self.progress_bar.setValue(0)
+        self.download_button.setEnabled(False)
+        self.statusBar().showMessage(f"Downloading: {show_to_download['Title']}")
+
+        # Setup and start download thread
+        self.download_thread = QThread()
+        self.downloader = Downloader(download_url, save_path)
+        self.downloader.moveToThread(self.download_thread)
+
+        self.download_thread.started.connect(self.downloader.run)
+        self.downloader.progress.connect(self.update_progress)
+        # New detailed progress connection for rate and ETA display
+        self.downloader.progress_detail.connect(self.update_progress_detail)
+        self.downloader.finished.connect(self.on_download_finished)
+        self.downloader.error.connect(self.on_download_error)
+        # Ensure cleanup and thread exit on error as well
+        self.downloader.error.connect(self.download_thread.quit)
+        self.downloader.error.connect(self.downloader.deleteLater)
+
+        self.downloader.finished.connect(self.download_thread.quit)
+        self.downloader.finished.connect(self.downloader.deleteLater)
+        self.download_thread.finished.connect(self.download_thread.deleteLater)
+
+        self.download_thread.start()
+
+    @Slot(int)
+    def update_progress(self, value: int) -> None:
+        """Updates the progress bar only (legacy)."""
+        if self._is_shutting_down:
+            return
+        self.progress_bar.setValue(value)
+
+    @Slot(int, int, int, float, float)
+    def update_progress_detail(self, percent: int, downloaded: int, total: int, rate_bps: float, eta_secs: float) -> None:
+        """Updates the progress bar and displays rate and ETA in the status bar."""
+        if self._is_shutting_down:
+            return
+        # Keep the bar in sync if total known
+        if total > 0:
+            self.progress_bar.setValue(percent)
+        # Build a friendly status string without showing downloaded size
+        rate_str = self._format_bytes(rate_bps) + "/s" if rate_bps >= 0 else "-"
+        if eta_secs >= 0:
+            eta_str = self._format_time(eta_secs)
+        else:
+            eta_str = "--:--"
+        if total > 0:
+            status = f"Downloading: {self.current_download_title} — {percent}% — {rate_str} — ETA {eta_str}"
+        else:
+            status = f"Downloading: {self.current_download_title} — {rate_str}"
+        self.statusBar().showMessage(status)
+
+    def _format_bytes(self, num_bytes: float) -> str:
+        """Formats a byte count into a human-readable string."""
+        units = ["B", "KB", "MB", "GB", "TB"]
+        size = float(num_bytes)
+        for unit in units:
+            if size < 1024.0 or unit == units[-1]:
+                return f"{size:.2f} {unit}"
+            size /= 1024.0
+        return f"{size:.2f} TB"
+
+    def _format_time(self, seconds: float) -> str:
+        """Formats seconds into H:MM:SS or M:SS."""
+        secs = int(max(0, round(seconds)))
+        h = secs // 3600
+        m = (secs % 3600) // 60
+        s = secs % 60
+        if h > 0:
+            return f"{h}:{m:02d}:{s:02d}"
+        else:
+            return f"{m}:{s:02d}"
+
+    @Slot()
+    def on_download_finished(self) -> None:
+        """Handles successful download completion."""
+        if self._is_shutting_down:
+            return
+        self.statusBar().showMessage("Download complete.")
+        self.progress_bar.setVisible(False)
+        self.download_button.setEnabled(True)
+        QMessageBox.information(self, "Success", "The show has been downloaded successfully.")
+
+    @Slot(str)
+    def on_download_error(self, error_msg: str) -> None:
+        """Handles download errors."""
+        if self._is_shutting_down:
+            return
+        self.statusBar().showMessage("Download failed.")
+        self.progress_bar.setVisible(False)
+        self.download_button.setEnabled(True)
+        # Avoid dialog spam on app shutdown cancel
+        if error_msg != "Canceled":
+            QMessageBox.critical(self, "Download Error", f"An error occurred: {error_msg}")
+
+    @Slot()
+    def quit_app(self) -> None:
+        """Triggered by Quit button to close the application cleanly."""
+        self.close()
+
+    def closeEvent(self, event) -> None:  # type: ignore[override]
+        """Ensure background threads are terminated before closing."""
+        # Mark as shutting down to prevent slots from touching the UI
+        self._is_shutting_down = True
+        self._shutdown_threads()
+        super().closeEvent(event)
+
+    def _shutdown_threads(self) -> None:
+        # Stop an active download if any
+        try:
+            if hasattr(self, "download_thread") and self.download_thread is not None:
+                if self.download_thread.isRunning():
+                    if hasattr(self, "downloader") and self.downloader is not None:
+                        # Request cooperative cancellation
+                        try:
+                            self.downloader.cancel()
+                        except Exception:
+                            pass
+                    # Give it some time to finish
+                    self.download_thread.wait(5000)
+                    if self.download_thread.isRunning():
+                        # As a last resort, force terminate (unsafe, but prevents hang on exit)
+                        self.download_thread.terminate()
+                        self.download_thread.wait(2000)
+        except Exception:
+            pass
+
+        # Try to stop fetch thread gracefully
+        try:
+            if hasattr(self, "fetch_thread") and self.fetch_thread is not None:
+                if self.fetch_thread.isRunning():
+                    self.fetch_thread.quit()
+                    self.fetch_thread.wait(3000)
+                    if self.fetch_thread.isRunning():
+                        self.fetch_thread.terminate()
+                        self.fetch_thread.wait(1000)
+        except Exception:
+            pass
+
+
+if __name__ == "__main__":
+    app = QApplication(sys.argv)
+    window = MainWindow()
+    window.showMaximized()
+    sys.exit(app.exec())
+

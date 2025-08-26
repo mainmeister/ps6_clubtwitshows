@@ -4,6 +4,8 @@ version = "0.1.0"
 description = "GUI interface to download your club twit episodes"
 requires-python = ">=3.12"
 dependencies = [
+    "buildozer>=1.5.0",
+    "kivy>=2.3.1",
     "lxml>=6.0.1",
     "pyside6>=6.9.1",
     "python-dotenv>=1.1.1",

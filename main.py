@@ -60,7 +60,8 @@ class Downloader(QObject):
     # Basic percentage progress for backward compatibility
     progress = Signal(int)
     # Detailed progress: percent, bytes_downloaded, total_bytes, rate_bytes_per_sec, eta_seconds
-    progress_detail = Signal(int, int, int, float, float)
+    # Use 'object' for large byte counts to avoid Qt int overflow on very large downloads.
+    progress_detail = Signal(int, object, object, float, float)
     finished = Signal()
     error = Signal(str)
 
@@ -369,7 +370,7 @@ class MainWindow(QMainWindow):
             return
         self.progress_bar.setValue(value)
 
-    @Slot(int, int, int, float, float)
+    @Slot(int, object, object, float, float)
     def update_progress_detail(self, percent: int, downloaded: int, total: int, rate_bps: float, eta_secs: float) -> None:
         """Updates the progress bar and displays rate and ETA in the status bar."""
         if self._is_shutting_down:
@@ -400,8 +401,19 @@ class MainWindow(QMainWindow):
         return f"{size:.2f} TB"
 
     def _format_time(self, seconds: float) -> str:
-        """Formats seconds into H:MM:SS or M:SS."""
-        secs = int(max(0, round(seconds)))
+        """Formats seconds into H:MM:SS or M:SS, guarding against overflow/non-finite values."""
+        try:
+            import math
+            # Return placeholder for invalid or negative ETA values
+            if not math.isfinite(seconds) or seconds < 0:
+                return "--:--"
+            # Cap to a sane upper bound to avoid absurdly large times (99:59:59)
+            max_secs = 99 * 3600 + 59 * 60 + 59
+            secs_f = min(float(seconds), float(max_secs))
+            # Round safely without using round() on potentially huge floats
+            secs = int(secs_f + 0.5)
+        except Exception:
+            return "--:--"
         h = secs // 3600
         m = (secs % 3600) // 60
         s = secs % 60

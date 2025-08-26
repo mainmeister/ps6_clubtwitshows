@@ -11,3 +11,6 @@ requests==2.32.3
 PySide6==6.7.0
 
 You need an environment string twitcluburl containing your personal club twit url.
+
+if you have uv you can just do a uv init to initialize then uv run main.py
+

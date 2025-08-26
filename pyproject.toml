@@ -1,7 +1,7 @@
 [project]
 name = "clubtwitshows"
 version = "0.1.0"
-description = "Add your description here"
+description = "GUI interface to download your club twit episodes"
 requires-python = ">=3.12"
 dependencies = [
     "lxml>=6.0.1",

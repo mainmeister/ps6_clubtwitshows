@@ -15,6 +15,21 @@ from PySide6.QtCore import (
 from clubtwit import ClubTwit
 
 
+class SortableTableWidgetItem(QTableWidgetItem):
+    """QTableWidgetItem with a custom sort key to support numeric/date sorting."""
+    def __init__(self, text: str, sort_key):
+        super().__init__(text)
+        self._sort_key = sort_key
+
+    def __lt__(self, other):  # type: ignore[override]
+        try:
+            if isinstance(other, SortableTableWidgetItem):
+                return self._sort_key < other._sort_key
+        except Exception:
+            pass
+        return super().__lt__(other)
+
+
 class ShowFetcher(QObject):
     """
     Worker object to fetch show data in a separate thread.
@@ -170,6 +185,9 @@ class MainWindow(QMainWindow):
         header.setSectionResizeMode(0, QHeaderView.ResizeMode.Stretch)
         header.setSectionResizeMode(1, QHeaderView.ResizeMode.ResizeToContents)
         header.setSectionResizeMode(2, QHeaderView.ResizeMode.ResizeToContents)
+        # Enable sorting by clicking on headers; Qt toggles order on repeated clicks
+        self.table.setSortingEnabled(True)
+        header.setSortIndicatorShown(True)
         self.splitter.addWidget(self.table)
 
     def load_shows(self) -> None:
@@ -199,14 +217,41 @@ class MainWindow(QMainWindow):
         """
         if self._is_shutting_down:
             return
+        # Prevent auto-sorting jitter while filling
+        was_sorting = self.table.isSortingEnabled()
+        if was_sorting:
+            self.table.setSortingEnabled(False)
         self.shows_data = shows
         self.table.setRowCount(len(shows))
         for row, show in enumerate(shows):
-            size_mb = f"{show.get('Length', 0) / (1024 * 1024):.2f}"
-            self.table.setItem(row, 0, QTableWidgetItem(show.get("Title")))
-            self.table.setItem(row, 1, QTableWidgetItem(show.get("PubDate")))
-            self.table.setItem(row, 2, QTableWidgetItem(size_mb))
+            title_text = show.get("Title") or ""
+            title_item = SortableTableWidgetItem(title_text, title_text.casefold())
+            title_item.setData(Qt.ItemDataRole.UserRole, show)
+
+            pub_text = show.get("PubDate") or ""
+            ts = 0.0
+            try:
+                from email.utils import parsedate_to_datetime
+                dt = parsedate_to_datetime(pub_text)
+                if dt is not None:
+                    ts = dt.timestamp()
+            except Exception:
+                ts = 0.0
+            pub_item = SortableTableWidgetItem(pub_text, ts)
+
+            try:
+                length_bytes = int(show.get("Length", 0) or 0)
+            except Exception:
+                length_bytes = 0
+            size_mb = f"{length_bytes / (1024 * 1024):.2f}"
+            size_item = SortableTableWidgetItem(size_mb, length_bytes)
+
+            self.table.setItem(row, 0, title_item)
+            self.table.setItem(row, 1, pub_item)
+            self.table.setItem(row, 2, size_item)
         self.statusBar().showMessage(f"Loaded {len(shows)} shows.")
+        if was_sorting:
+            self.table.setSortingEnabled(True)
 
     @Slot(str)
     def on_fetch_error(self, error_message: str) -> None:
@@ -243,7 +288,14 @@ class MainWindow(QMainWindow):
         selected_rows = self.table.selectionModel().selectedRows()
         if selected_rows:
             selected_row = selected_rows[0].row()
-            description = self.shows_data[selected_row].get("Description", "No description available.")
+            title_item = self.table.item(selected_row, 0)
+            show = None
+            if title_item is not None:
+                show = title_item.data(Qt.ItemDataRole.UserRole)
+            if not isinstance(show, dict):
+                # Fallback to legacy mapping by row index
+                show = self.shows_data[selected_row] if 0 <= selected_row < len(self.shows_data) else {}
+            description = show.get("Description", "No description available.")
             self.description_browser.setText(description)
             self.download_button.setEnabled(True)
         else:
@@ -260,7 +312,14 @@ class MainWindow(QMainWindow):
             return
 
         selected_row = selected_rows[0].row()
-        show_to_download = self.shows_data[selected_row]
+        title_item = self.table.item(selected_row, 0)
+        show_to_download = None
+        if title_item is not None:
+            show_to_download = title_item.data(Qt.ItemDataRole.UserRole)
+        if not isinstance(show_to_download, dict):
+            show_to_download = self.shows_data[selected_row] if 0 <= selected_row < len(self.shows_data) else None
+        if not isinstance(show_to_download, dict):
+            return
         download_url = show_to_download.get("Link")
         self.current_download_title = show_to_download.get("Title", "")
 

@@ -12,3 +12,4 @@ dependencies = [
 
 [project.scripts]
 run-requirements = "install_requirements:main"
+push-to-github = "push_to_github:main"

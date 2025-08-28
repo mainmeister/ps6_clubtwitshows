@@ -424,7 +424,7 @@ class ClubTwitAndroidApp(App):
 
 if __name__ == '__main__':
     # Helpful if run on desktop for testing: allow setting env var via CLI
-    # Usage: python android.py https://example.com/path/to/rss.xml
+    # Usage: python android_app.py https://example.com/path/to/rss.xml
     if len(sys.argv) > 1 and not os.getenv('twitcluburl'):
         os.environ['twitcluburl'] = sys.argv[1]
     ClubTwitAndroidApp().run()

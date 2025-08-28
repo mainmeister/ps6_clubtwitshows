@@ -18,26 +18,26 @@ if you have uv you can just do a uv init to initialize then uv run main.py
 
 Android front end (Kivy)
 ------------------------
-A Kivy-based Android UI is available as android.py. It provides the same core functionality as main.py: lists shows from your RSS feed (twitcluburl), lets you select a show, and downloads it with a progress bar, rate, and ETA.
+A Kivy-based Android UI is available as android_app.py. It provides the same core functionality as main.py: lists shows from your RSS feed (twitcluburl), lets you select a show, and downloads it with a progress bar, rate, and ETA.
 
 Quick desktop test
 - pip install kivy requests lxml python-dotenv
 - Set your feed URL via env var or pass it on the command line:
   - export twitcluburl="https://your.clubtwit/feed.xml"
-  - python android.py
-  - or: python android.py https://your.clubtwit/feed.xml
+  - python android_app.py
+  - or: python android_app.py https://your.clubtwit/feed.xml
 
 Android build (using Buildozer)
 - Install buildozer on Linux, then run:
   - buildozer init
-  - In buildozer.spec set: entrypoint = android.py
+  - In buildozer.spec set: entrypoint = android_app.py
   - Set requirements (example): python3,kivy,requests,lxml,python-dotenv
   - Optionally set: android.permissions = READ_EXTERNAL_STORAGE,WRITE_EXTERNAL_STORAGE
   - buildozer android debug
 
 Notes
-- The desktop requirements.txt keeps PySide6 for the desktop GUI and does not include Kivy. Install Kivy separately when testing android.py.
-- On Android 10+ (scoped storage), saving to arbitrary folders may require SAF. By default android.py saves to the Download folder where possible.
+- The desktop requirements.txt keeps PySide6 for the desktop GUI and does not include Kivy. Install Kivy separately when testing android_app.py.
+- On Android 10+ (scoped storage), saving to arbitrary folders may require SAF. By default android_app.py saves to the Download folder where possible.
 - The app also respects the twitcluburl environment variable if set.
 
 

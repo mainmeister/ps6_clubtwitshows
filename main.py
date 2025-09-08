@@ -8,6 +8,7 @@ from PySide6.QtWidgets import (
     QPushButton, QVBoxLayout, QWidget, QHeaderView, QTextBrowser,
     QSplitter, QProgressBar, QFileDialog, QMessageBox, QInputDialog
 )
+from PySide6.QtGui import QShortcut, QKeySequence
 from PySide6.QtCore import (
     Qt, QThread, QObject, Signal, Slot
 )
@@ -173,6 +174,13 @@ class MainWindow(QMainWindow):
         self.quit_button.clicked.connect(self.quit_app)
 
         self.load_shows()
+
+        # Make Esc behave like Quit
+        try:
+            esc_shortcut = QShortcut(QKeySequence(Qt.Key_Escape), self)
+            esc_shortcut.activated.connect(self.quit_app)
+        except Exception:
+            pass
 
     def _setup_table(self) -> None:
         """Initializes and configures the QTableWidget."""
@@ -455,6 +463,16 @@ class MainWindow(QMainWindow):
         self._is_shutting_down = True
         self._shutdown_threads()
         super().closeEvent(event)
+
+    def keyPressEvent(self, event) -> None:  # type: ignore[override]
+        """Treat Esc as Quit for convenience."""
+        try:
+            if event.key() == Qt.Key_Escape:
+                self.quit_app()
+                return
+        except Exception:
+            pass
+        super().keyPressEvent(event)
 
     def _shutdown_threads(self) -> None:
         # Stop an active download if any

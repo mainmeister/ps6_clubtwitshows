@@ -186,14 +186,14 @@ class MainWindow(QMainWindow):
         """Initializes and configures the QTableWidget."""
         self.table = QTableWidget()
         self.table.setColumnCount(3)
-        self.table.setHorizontalHeaderLabels(["Title", "Publication Date", "Size (MB)"])
+        self.table.setHorizontalHeaderLabels(["Publication Date", "Size (MB)", "Title"])
         self.table.setSelectionBehavior(QTableWidget.SelectionBehavior.SelectRows)
         self.table.setEditTriggers(QTableWidget.EditTriggers.NoEditTriggers)
         self.table.verticalHeader().setVisible(False)
         header = self.table.horizontalHeader()
-        header.setSectionResizeMode(0, QHeaderView.ResizeMode.Stretch)
+        header.setSectionResizeMode(0, QHeaderView.ResizeMode.ResizeToContents)
         header.setSectionResizeMode(1, QHeaderView.ResizeMode.ResizeToContents)
-        header.setSectionResizeMode(2, QHeaderView.ResizeMode.ResizeToContents)
+        header.setSectionResizeMode(2, QHeaderView.ResizeMode.Stretch)
         # Enable sorting by clicking on headers; Qt toggles order on repeated clicks
         self.table.setSortingEnabled(True)
         header.setSortIndicatorShown(True)
@@ -202,7 +202,12 @@ class MainWindow(QMainWindow):
             header.sortIndicatorChanged.connect(self._update_sorted_column_header_color)
         except Exception:
             pass
-        # Apply initial header coloring (no column sorted yet -> reset colors)
+        # Apply initial sort: Publication Date (column 0), newest first
+        try:
+            header.setSortIndicator(0, Qt.SortOrder.DescendingOrder)
+        except Exception:
+            pass
+        # Apply initial header coloring
         try:
             self._update_sorted_column_header_color()
         except Exception:
@@ -265,12 +270,17 @@ class MainWindow(QMainWindow):
             size_mb = f"{length_bytes / (1024 * 1024):.2f}"
             size_item = SortableTableWidgetItem(size_mb, length_bytes)
 
-            self.table.setItem(row, 0, title_item)
-            self.table.setItem(row, 1, pub_item)
-            self.table.setItem(row, 2, size_item)
+            self.table.setItem(row, 0, pub_item)
+            self.table.setItem(row, 1, size_item)
+            self.table.setItem(row, 2, title_item)
         self.statusBar().showMessage(f"Loaded {len(shows)} shows.")
         if was_sorting:
             self.table.setSortingEnabled(True)
+        # Ensure initial sort by Publication Date (column 0), newest first
+        try:
+            self.table.sortByColumn(0, Qt.SortOrder.DescendingOrder)
+        except Exception:
+            pass
         # Re-apply header color after (re)population
         try:
             self._update_sorted_column_header_color()
@@ -312,7 +322,7 @@ class MainWindow(QMainWindow):
         selected_rows = self.table.selectionModel().selectedRows()
         if selected_rows:
             selected_row = selected_rows[0].row()
-            title_item = self.table.item(selected_row, 0)
+            title_item = self.table.item(selected_row, 2)
             show = None
             if title_item is not None:
                 show = title_item.data(Qt.ItemDataRole.UserRole)
@@ -336,7 +346,7 @@ class MainWindow(QMainWindow):
             return
 
         selected_row = selected_rows[0].row()
-        title_item = self.table.item(selected_row, 0)
+        title_item = self.table.item(selected_row, 2)
         show_to_download = None
         if title_item is not None:
             show_to_download = title_item.data(Qt.ItemDataRole.UserRole)

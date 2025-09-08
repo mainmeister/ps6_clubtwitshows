@@ -318,6 +318,7 @@ class MainWindow(QMainWindow):
     def on_selection_changed(self) -> None:
         """
         Updates the description and enables the download button when a show is selected.
+        Also copies the episode URL to the clipboard as text.
         """
         selected_rows = self.table.selectionModel().selectedRows()
         if selected_rows:
@@ -331,6 +332,13 @@ class MainWindow(QMainWindow):
                 show = self.shows_data[selected_row] if 0 <= selected_row < len(self.shows_data) else {}
             description = show.get("Description", "No description available.")
             self.description_browser.setText(description)
+            # Copy URL to clipboard if available
+            try:
+                link = show.get("Link") if isinstance(show, dict) else None
+                if link:
+                    QApplication.clipboard().setText(str(link))
+            except Exception:
+                pass
             self.download_button.setEnabled(True)
         else:
             self.description_browser.clear()

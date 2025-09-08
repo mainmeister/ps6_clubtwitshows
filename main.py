@@ -197,6 +197,16 @@ class MainWindow(QMainWindow):
         # Enable sorting by clicking on headers; Qt toggles order on repeated clicks
         self.table.setSortingEnabled(True)
         header.setSortIndicatorShown(True)
+        # Connect to update header colors based on sorted column
+        try:
+            header.sortIndicatorChanged.connect(self._update_sorted_column_header_color)
+        except Exception:
+            pass
+        # Apply initial header coloring (no column sorted yet -> reset colors)
+        try:
+            self._update_sorted_column_header_color()
+        except Exception:
+            pass
         self.splitter.addWidget(self.table)
 
     def load_shows(self) -> None:
@@ -261,6 +271,11 @@ class MainWindow(QMainWindow):
         self.statusBar().showMessage(f"Loaded {len(shows)} shows.")
         if was_sorting:
             self.table.setSortingEnabled(True)
+        # Re-apply header color after (re)population
+        try:
+            self._update_sorted_column_header_color()
+        except Exception:
+            pass
 
     @Slot(str)
     def on_fetch_error(self, error_message: str) -> None:
@@ -473,6 +488,32 @@ class MainWindow(QMainWindow):
         except Exception:
             pass
         super().keyPressEvent(event)
+
+    def _update_sorted_column_header_color(self, logicalIndex: int | None = None, order: Qt.SortOrder | None = None) -> None:
+        """Set the sorted column header text color to green and reset others."""
+        try:
+            header = self.table.horizontalHeader()
+            # Determine current sorted column from header if not provided
+            sorted_col = header.sortIndicatorSection()
+            if sorted_col is None or sorted_col < 0:
+                sorted_col = -1
+            # Ensure header items exist so we can set brush
+            col_count = self.table.columnCount()
+            for c in range(col_count):
+                item = self.table.horizontalHeaderItem(c)
+                if item is None:
+                    # Create a header item based on current label
+                    label = self.table.model().headerData(c, Qt.Orientation.Horizontal)
+                    item = QTableWidgetItem(str(label) if label is not None else "")
+                    self.table.setHorizontalHeaderItem(c, item)
+                # Apply color: green for sorted column, default for others
+                if c == sorted_col:
+                    item.setForeground(Qt.GlobalColor.green)
+                else:
+                    # Reset to default by clearing the brush (use black from palette role if needed)
+                    item.setForeground(self.palette().windowText())
+        except Exception:
+            pass
 
     def _shutdown_threads(self) -> None:
         # Stop an active download if any

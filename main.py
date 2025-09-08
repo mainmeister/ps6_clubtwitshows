@@ -270,6 +270,12 @@ class MainWindow(QMainWindow):
             size_mb = f"{length_bytes / (1024 * 1024):.2f}"
             size_item = SortableTableWidgetItem(size_mb, length_bytes)
 
+            # Set tooltips with the show's description on all cells in this row
+            desc = show.get("Description") or "No description available."
+            title_item.setToolTip(desc)
+            pub_item.setToolTip(desc)
+            size_item.setToolTip(desc)
+
             self.table.setItem(row, 0, pub_item)
             self.table.setItem(row, 1, size_item)
             self.table.setItem(row, 2, title_item)

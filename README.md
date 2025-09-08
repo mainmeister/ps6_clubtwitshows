@@ -28,12 +28,22 @@ Quick desktop test
   - or: python android_app.py https://your.clubtwit/feed.xml
 
 Android build (using Buildozer)
-- Install buildozer on Linux, then run:
-  - buildozer init
-  - In buildozer.spec set: entrypoint = android_app.py
-  - Set requirements (example): python3,kivy,requests,lxml,python-dotenv
-  - Optionally set: android.permissions = READ_EXTERNAL_STORAGE,WRITE_EXTERNAL_STORAGE
-  - buildozer android debug
+- Install buildozer on Linux (or via Docker). Then from the repo root:
+  - Ensure you have Android SDK/NDK auto-managed by Buildozer (default) or set android.sdk_path/android.ndk_path if offline.
+  - The provided buildozer.spec is already configured:
+    - title = Club TWiT Downloader
+    - package.name = clubtwit
+    - package.domain = com.clubtwit.shows
+    - android.entrypoint = android_app.py
+    - requirements = python3,kivy,requests,lxml,python-dotenv
+    - android.permissions include INTERNET and legacy WRITE_EXTERNAL_STORAGE (pre-Android 10)
+  - Optionally export your feed URL before building (can also be set in the app UI):
+    - export twitcluburl="https://your.clubtwit/feed.xml"
+  - Build a debug APK:
+    - buildozer android debug
+  - After a successful build, the APK will be in bin/ (e.g., bin/clubtwit-0.1-arm64-v8a-armeabi-v7a-debug.apk).
+  - To deploy to a connected device:
+    - buildozer android deploy run logcat
 
 Notes
 - The desktop requirements.txt keeps PySide6 for the desktop GUI and does not include Kivy. Install Kivy separately when testing android_app.py.
@@ -69,3 +79,47 @@ Notes
 - requirements.txt is for the desktop GUI (PySide6) and does not include Kivy. Install Kivy separately when testing ios.py.
 - iOS apps are sandboxed; downloads are saved to the app’s Documents folder (visible in the Files app).
 - On-device, environment variables like twitcluburl are typically not present; set/override the URL in the app UI. When running on desktop, ios.py also respects the twitcluburl env var if set.
+
+
+Troubleshooting (Android Build)
+------------------------------
+If you see an error like:
+
+- "Aidl not found, please install it" or in logs "Check that aidl can be executed / Aidl not found"
+
+This means the Android SDK Build-Tools (which contain the aidl binary) are not yet installed or not found by Buildozer.
+
+Recommended (auto-managed SDK by Buildozer):
+- We’ve enabled automatic SDK license acceptance and pinned an Android API in buildozer.spec so Buildozer can install what it needs. Try again:
+  - buildozer android debug
+
+If you use a local Android SDK (custom android.sdk_path):
+- Ensure Build-Tools and Platform are installed. For example (replace 33.x.x with a version you have available):
+  - sdkmanager --licenses
+  - sdkmanager "platform-tools" "platforms;android-33" "build-tools;33.0.2"
+- In buildozer.spec, set your SDK path if you manage it yourself:
+  - android.sdk_path = /path/to/Android/Sdk
+- Then rebuild:
+  - buildozer android debug
+
+Notes:
+- AIDL is part of the Android build-tools package. If buildozer manages the SDK, it downloads the correct build-tools automatically once licenses are accepted.
+- We pinned android.api = 33 and ndk 23b which are known-good with current python-for-android.
+
+
+Additional note about system AIDL vs SDK Build-Tools AIDL and auto-fix hook
+---------------------------------------------------------
+If you can run `aidl` at `/usr/bin/aidl`, Buildozer will still report "Aidl not found" because python-for-android relies on the AIDL binary shipped with the Android SDK Build-Tools (located under `$ANDROID_SDK/build-tools/<version>/aidl`). It does not use the system-wide `/usr/bin/aidl`.
+
+What we changed in this repo:
+- We set `android.build_tools_version = 33.0.2` in `buildozer.spec` so Buildozer installs and uses that exact Build-Tools version, ensuring the correct `aidl` is available.
+- We added a p4a hook (`p4a_hook.py`) and enabled it in `buildozer.spec` so that, if AIDL is still missing in the SDK used by Buildozer, the hook will invoke `sdkmanager` to install `build-tools;33.0.2`, `platforms;android-33`, and `platform-tools` before the APK build.
+
+If you manage your own SDK (custom `android.sdk_path`):
+- Install the matching Build-Tools version and platform:
+  - sdkmanager --licenses
+  - sdkmanager "platform-tools" "platforms;android-33" "build-tools;33.0.2"
+- In `buildozer.spec`, point to your SDK directory:
+  - android.sdk_path = /home/you/Android/Sdk
+- Then rebuild:
+  - buildozer android debug

@@ -73,7 +73,15 @@ class ClubTwit:
                     tree = etree.parse(StringIO(description_html), parser)
                     first_p = tree.xpath("//p[1]")
                     if first_p:
-                        description_text = first_p[0].text or ""
+                        # Join all text within the first paragraph, including nested tags
+                        description_text = "".join(first_p[0].itertext()).strip()
+                    # Fallback: if no <p> or empty, join all text content from body
+                    if not description_text:
+                        body = tree.xpath('//body')
+                        if body:
+                            description_text = " ".join(t.strip() for t in body[0].itertext() if t.strip())
+                        else:
+                            description_text = " ".join(t.strip() for t in tree.getroot().itertext() if t.strip())
                 except Exception:
                     # Fallback if HTML parsing fails
                     description_text = "Could not parse description."

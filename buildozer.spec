@@ -1,13 +1,13 @@
 [app]
 
 # (str) Title of your application
-title = My Application
+title = Club TWiT Downloader
 
 # (str) Package name
-package.name = myapp
+package.name = clubtwit
 
 # (str) Package domain (needed for android/ios packaging)
-package.domain = org.test
+package.domain = com.clubtwit.shows
 
 # (str) Source code where the main.py live
 source.dir = .
@@ -101,7 +101,7 @@ android.permissions = android.permission.INTERNET, (name=android.permission.WRIT
 #android.features = android.hardware.usb.host
 
 # (int) Target Android API, should be as high as possible.
-#android.api = 31
+android.api = 33
 
 # (int) Minimum API your APK / AAB will support.
 #android.minapi = 21
@@ -110,7 +110,9 @@ android.permissions = android.permission.INTERNET, (name=android.permission.WRIT
 #android.sdk = 20
 
 # (str) Android NDK version to use
-#android.ndk = 23b
+android.ndk = 23b
+# (str) Android build tools version to use (forces SDK build-tools; contains aidl)
+android.build_tools_version = 33.0.2
 
 # (int) Android NDK API to use. This is the minimum API your app will support, it should usually match android.minapi.
 #android.ndk_api = 21
@@ -122,7 +124,9 @@ android.permissions = android.permission.INTERNET, (name=android.permission.WRIT
 #android.ndk_path =
 
 # (str) Android SDK directory (if empty, it will be automatically downloaded.)
-#android.sdk_path =
+# Tip: If you already have an SDK with build-tools installed, set this to its path, e.g. /home/you/Android/Sdk
+# Tip: If Buildozer still cannot find AIDL, point to your Android SDK here
+#android.sdk_path = /home/you/Android/Sdk
 
 # (str) ANT directory (if empty, it will be automatically downloaded.)
 #android.ant_path =
@@ -136,7 +140,7 @@ android.permissions = android.permission.INTERNET, (name=android.permission.WRIT
 # agreements. This is intended for automation only. If set to False,
 # the default, you will be shown the license when first running
 # buildozer.
-# android.accept_sdk_license = False
+android.accept_sdk_license = True
 
 # (str) Android entry point, default is ok for Kivy-based app
 android.entrypoint = android_app.py
@@ -333,7 +337,7 @@ android.allow_backup = True
 #p4a.local_recipes =
 
 # (str) Filename to the hook for p4a
-#p4a.hook =
+p4a.hook = p4a_hook.py
 
 # (str) Bootstrap to use for android builds
 # p4a.bootstrap = sdl2

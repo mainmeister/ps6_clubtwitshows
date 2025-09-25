@@ -47,7 +47,7 @@ def get_latest_security_now_episode() -> int:
 
 if __name__ == "__main__":
     latest_episode = get_latest_security_now_episode()
-    speed = input("Speed in Kbps(0 = no limit): ")
+    speed = input("Speed in Kbps(blank = no limit): ")
     speed = speed if speed else "0"
 
     # Change to your desired download directory
@@ -64,4 +64,4 @@ if __name__ == "__main__":
                 f"yt-dlp --download-archive archive.txt "
                 f"https://twit.tv/shows/security-now/episodes/{episode}"
             )
-
+    print("All done!")
